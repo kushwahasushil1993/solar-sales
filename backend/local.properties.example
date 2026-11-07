@@ -1,0 +1,9 @@
+# Copy to backend/local.properties (git-ignored) for your own local settings.
+# Environment variables (JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, ...) work too.
+
+# Generate with: openssl rand -base64 48
+app.jwt.secret=
+
+# Admin created on first start if this email doesn't exist yet
+app.admin.email=admin@solarsales.local
+app.admin.password=
