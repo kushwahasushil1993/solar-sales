@@ -1,0 +1,14 @@
+# backend
+backend/target/
+backend/data/
+# local secrets
+backend/local.properties
+local.properties
+.env
+.env.*
+*.iml
+.idea/
+# frontend
+frontend/node_modules/
+frontend/dist/
+.DS_Store
