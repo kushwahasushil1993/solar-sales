@@ -1,30 +1,33 @@
 package com.solar.sales.security;
 
-import com.jayway.jsonpath.JsonPath;
+import com.solar.sales.entity.AppUser;
+import com.solar.sales.entity.Role;
 import com.solar.sales.repository.AppUserRepository;
 import com.solar.sales.repository.SolarSaleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import com.solar.sales.support.TestSenders;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(TestSenders.class)
 class SecurityTest {
-
-    // matches src/test/resources/application.properties
-    private static final String ADMIN_EMAIL = "admin@test.local";
-    private static final String ADMIN_PASSWORD = "Admin@Test1";
 
     @Autowired MockMvc mvc;
     @Autowired AppUserRepository users;
@@ -33,139 +36,142 @@ class SecurityTest {
     @BeforeEach
     void clean() {
         sales.deleteAll();
+        users.deleteAll();
     }
 
     @Test
-    void apiRequiresLogin() throws Exception {
+    void apiRequiresSignIn() throws Exception {
         mvc.perform(get("/api/sales")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/dashboard")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/sales").header("Authorization", "Bearer not-a-jwt")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Please sign in"));
     }
 
     @Test
-    void registrationCreatesPlainUser() throws Exception {
-        String email = uniqueEmail();
-        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("Priya Patel", email, "secret123")))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.token").isNotEmpty())
-                .andExpect(jsonPath("$.user.role").value("USER"));
-
-        // same email again (different case) is rejected
-        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("Other", email.toUpperCase(), "secret123")))
-                .andExpect(status().isConflict());
+    void providersArePublic() throws Exception {
+        mvc.perform(get("/api/auth/providers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("google"))
+                .andExpect(jsonPath("$[0].loginUrl").value("/oauth2/authorization/google"))
+                .andExpect(jsonPath("$[1].id").value("github"));
     }
 
     @Test
-    void registrationValidatesPassword() throws Exception {
-        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("Weak", uniqueEmail(), "password")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors.password").value("Password must contain a letter and a number"));
+    void signInRedirectsToProviderWithCallbackOnSameHost() throws Exception {
+        mvc.perform(get("/oauth2/authorization/google").header("Host", "localhost:5173"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", startsWith("https://accounts.google.com/o/oauth2/v2/auth")))
+                .andExpect(header().string("Location",
+                        containsString("redirect_uri=http://localhost:5173/login/oauth2/code/google")));
+        mvc.perform(get("/oauth2/authorization/github"))
+                .andExpect(header().string("Location", startsWith("https://github.com/login/oauth/authorize")))
+                .andExpect(header().string("Location", containsString("user:email")));
     }
 
     @Test
-    void loginRejectsWrongPassword() throws Exception {
-        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"%s\",\"password\":\"wrong-pass1\"}".formatted(ADMIN_EMAIL)))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.detail").value("Invalid email or password"));
+    void meReturnsSignedInUser() throws Exception {
+        AppUser rep = user("rep@test.local", Role.USER);
+        mvc.perform(get("/api/auth/me").with(as(rep)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("rep@test.local"))
+                .andExpect(jsonPath("$.role").value("USER"));
+    }
+
+    @Test
+    void stateChangingRequestsNeedCsrfToken() throws Exception {
+        AppUser rep = user("rep@test.local", Role.USER);
+        mvc.perform(post("/api/sales").with(as(rep)).contentType(MediaType.APPLICATION_JSON).content(saleJson("INV-C1")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail", containsString("Refresh the page")));
     }
 
     @Test
     void userCanAddAndViewSalesButNotUploadEditOrManage() throws Exception {
-        String token = register("Sales Rep");
+        AppUser rep = user("rep@test.local", Role.USER);
 
-        mvc.perform(post("/api/sales").header("Authorization", bearer(token))
+        mvc.perform(post("/api/sales").with(as(rep)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(saleJson("INV-U1")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.createdByName").value("Sales Rep"))
-                .andExpect(jsonPath("$.installationStatus").value("PENDING"))
-                .andExpect(jsonPath("$.installationDate").doesNotExist());
-        mvc.perform(get("/api/sales").param("mine", "true").header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.createdByName").value("rep"))
+                .andExpect(jsonPath("$.installationStatus").value("INSTALLED"))
+                .andExpect(jsonPath("$.installationUpdatedBy").value("rep"));
+        mvc.perform(get("/api/sales").param("mine", "true").with(as(rep)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1));
-        mvc.perform(get("/api/dashboard").header("Authorization", bearer(token))).andExpect(status().isOk());
+        mvc.perform(get("/api/dashboard").with(as(rep))).andExpect(status().isOk());
 
         Long id = sales.findAll().getFirst().getId();
-        mvc.perform(multipart("/api/sales/upload").file(emptyXlsx()).header("Authorization", bearer(token)))
+        mvc.perform(multipart("/api/sales/upload").file(emptyXlsx()).with(as(rep)).with(csrf()))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/sales/template").header("Authorization", bearer(token))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/sales/export").header("Authorization", bearer(token))).andExpect(status().isForbidden());
-        mvc.perform(put("/api/sales/" + id).header("Authorization", bearer(token))
+        mvc.perform(get("/api/sales/template").with(as(rep))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/sales/export").with(as(rep))).andExpect(status().isForbidden());
+        mvc.perform(put("/api/sales/" + id).with(as(rep)).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(saleJson("INV-U1"))).andExpect(status().isForbidden());
-        mvc.perform(delete("/api/sales/" + id).header("Authorization", bearer(token))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/users").header("Authorization", bearer(token))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/uploads").header("Authorization", bearer(token))).andExpect(status().isForbidden());
+        mvc.perform(delete("/api/sales/" + id).with(as(rep)).with(csrf())).andExpect(status().isForbidden());
+        // ...but may update installation progress
+        mvc.perform(patch("/api/sales/" + id + "/installation").with(as(rep)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"installationStatus\":\"SCHEDULED\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/users").with(as(rep))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/uploads").with(as(rep))).andExpect(status().isForbidden());
     }
 
     @Test
-    void adminCanUploadAndManageUsers() throws Exception {
-        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
-        mvc.perform(get("/api/sales/template").header("Authorization", bearer(admin))).andExpect(status().isOk());
-        mvc.perform(get("/api/users").header("Authorization", bearer(admin))).andExpect(status().isOk());
+    void roleChangesAndDisablingApplyToExistingSessions() throws Exception {
+        AppUser admin = user("boss@test.local", Role.ADMIN);
+        AppUser rep = user("rep@test.local", Role.USER);
+        RequestPostProcessor repSession = as(rep); // principal still says USER
 
-        String userToken = register("Promote Me");
-        Long userId = JsonPath.<Integer>read(meJson(userToken), "$.id").longValue();
+        mvc.perform(get("/api/sales/template").with(as(admin))).andExpect(status().isOk());
+        mvc.perform(get("/api/users").with(repSession)).andExpect(status().isForbidden());
 
-        mvc.perform(put("/api/users/" + userId + "/role").header("Authorization", bearer(admin))
+        mvc.perform(put("/api/users/" + rep.getId() + "/role").with(as(admin)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"ADMIN\"}"))
                 .andExpect(status().isOk());
-        // role change applies to the existing token immediately
-        mvc.perform(get("/api/users").header("Authorization", bearer(userToken))).andExpect(status().isOk());
+        mvc.perform(get("/api/users").with(repSession)).andExpect(status().isOk());
 
-        mvc.perform(put("/api/users/" + userId + "/enabled").header("Authorization", bearer(admin))
+        mvc.perform(put("/api/users/" + rep.getId() + "/enabled").with(as(admin)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"enabled\":false}"))
                 .andExpect(status().isOk());
-        // disabled accounts lose access straight away and cannot log in
-        mvc.perform(get("/api/sales").header("Authorization", bearer(userToken))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/sales").with(repSession)).andExpect(status().isUnauthorized());
     }
 
     @Test
     void adminCannotDemoteOrDisableThemself() throws Exception {
-        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
-        Long adminId = users.findByEmail(ADMIN_EMAIL).orElseThrow().getId();
-
-        mvc.perform(put("/api/users/" + adminId + "/role").header("Authorization", bearer(admin))
+        AppUser admin = user("boss@test.local", Role.ADMIN);
+        mvc.perform(put("/api/users/" + admin.getId() + "/role").with(as(admin)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"USER\"}"))
                 .andExpect(status().isForbidden());
-        mvc.perform(put("/api/users/" + adminId + "/enabled").header("Authorization", bearer(admin))
+        mvc.perform(put("/api/users/" + admin.getId() + "/enabled").with(as(admin)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"enabled\":false}"))
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void logoutEndsSession() throws Exception {
+        AppUser rep = user("rep@test.local", Role.USER);
+        mvc.perform(post("/api/auth/logout").with(as(rep)).with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void swaggerAndApiDocsArePublic() throws Exception {
+        mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.info.title").value("SolarSales API"))
+                .andExpect(jsonPath("$.paths['/api/sales/upload'].post").exists())
+                .andExpect(jsonPath("$.components.securitySchemes.session.name").value("JSESSIONID"));
+        mvc.perform(get("/swagger-ui.html")).andExpect(status().is3xxRedirection());
+        mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
+    }
+
     // ---------------------------------------------------------------- helpers
 
-    private String register(String name) throws Exception {
-        String body = mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(name, uniqueEmail(), "secret123")))
-                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$.token");
+    private AppUser user(String email, Role role) {
+        return users.save(new AppUser(email.substring(0, email.indexOf('@')), email, role));
     }
 
-    private String login(String email, String password) throws Exception {
-        String body = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$.token");
-    }
-
-    private String meJson(String token) throws Exception {
-        return mvc.perform(get("/api/auth/me").header("Authorization", bearer(token)))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-    }
-
-    private static String bearer(String token) {
-        return "Bearer " + token;
-    }
-
-    private static String uniqueEmail() {
-        return "user-" + UUID.randomUUID() + "@test.local";
-    }
-
-    private static String registerJson(String name, String email, String password) {
-        return "{\"fullName\":\"%s\",\"email\":\"%s\",\"password\":\"%s\"}".formatted(name, email, password);
+    private static RequestPostProcessor as(AppUser u) {
+        return oauth2Login().oauth2User(new AuthUser(u.getId(), u.getEmail(), u.getFullName(), u.getRole()));
     }
 
     private static String saleJson(String invoice) {
@@ -178,4 +184,5 @@ class SecurityTest {
     private static MockMultipartFile emptyXlsx() {
         return new MockMultipartFile("file", "a.xlsx", "application/octet-stream", new byte[]{1});
     }
+
 }

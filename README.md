@@ -1,313 +1,232 @@
-# ☀️ SolarSales: Solar Sales & Purchase Records
+# ☀️ SolarSales: solar sales, installations & field agents
 
-A full-stack web application for a solar panel business to **record sales, track payments, follow each
-installation from purchase to completion, and bulk-import purchase records from Excel**.
+A full-stack web app for a solar business: **record sales, email customers their invoice and installation
+progress, dispatch installation jobs to field agents, and bulk-import purchase records from Excel**.
 
-Built with **React 18 (Vite)** on the frontend and **Spring Boot 4 (Java 21+)** on the backend, secured with
-**JWT authentication** and **role-based access** (Admin / Sales user).
+**React 18 (Vite)** frontend · **Spring Boot 4 (Java 21+)** backend · server-side sessions with CSRF protection ·
+sign-in with **email + password, mobile OTP or Google/GitHub** · role-based access (Admin / Sales / Agent) ·
+interactive **Swagger UI**.
 
 ![Dashboard](docs/screenshots/dashboard.jpg)
 
 ---
 
-## Table of contents
+## Contents
 
 - [Features](#features)
-- [Screenshots](#screenshots)
-- [Tech stack](#tech-stack)
 - [Roles & permissions](#roles--permissions)
 - [Getting started](#getting-started)
 - [Configuration](#configuration)
+- [Setting up email, SMS and Google/GitHub](#setting-up-email-sms-and-googlegithub)
+- [Customer email workflow](#customer-email-workflow)
 - [Excel upload format](#excel-upload-format)
-- [REST API](#rest-api)
+- [REST API & Swagger](#rest-api--swagger)
 - [Project structure](#project-structure)
 - [Architecture & design notes](#architecture--design-notes)
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
-- [Roadmap ideas](#roadmap-ideas)
 
 ---
 
 ## Features
 
-### Authentication
-- **Register** with name, email and password (min. 8 characters with a letter and a number) and you're signed in straight away.
-- **Login** with email + password; the backend issues a signed **JWT** valid for 8 hours.
-- Sessions survive a page reload; an expired or revoked session sends the user back to the login page.
-- Passwords are stored as **BCrypt** hashes.
+### Accounts & sign-in
+- **One "Email or mobile number" field.** An email asks for a password; a mobile number gets a **6-digit SMS code**.
+  New mobile numbers verify the code first, then fill in a short profile.
+- **Google / GitHub** buttons appear when configured.
+- **Sign-ups need approval.** New accounts choose *"Join as: Sales team / Installation agent"*, but that's only a
+  request: they see a *Waiting for approval* screen until an admin approves them as **Sales** or **Agent** (or rejects).
+  Admins get a 🔔 notification for every new sign-up.
+- **Forgot password:** a single-use reset link by email (30 minutes). Asking for a link never locks the current
+  password; setting the new one **signs out every session** of that account. The same applies to *Change password*
+  and to an admin's *Set password*.
+- **First run:** on an empty database the app asks to create the administrator. Everything about users and
+  passwords lives in the database, with nothing in config files.
+- Passwords are BCrypt-hashed; OTP codes and reset links are stored only as hashes.
 
-### Dashboard
-- KPI cards: total sales, total revenue, amount collected vs. outstanding, total kW sold, pending installations.
-- **Monthly revenue** bar chart for the last 12 months (empty months shown as zero).
-- **Capacity by panel type** donut chart.
-- **Installation status** progress bars and the 5 most recent sales.
+### Sales (admins & sales users)
+- **Dashboard:** revenue, collected vs outstanding, kW sold, pending installs, monthly revenue, panel mix.
+- **Sales Records:** search, filters, sorting, paging, add sale; admins also edit, delete, export to Excel and
+  see each sale's customer-email history (✉).
+- **Installation Status:** Pending → Scheduled → In progress → Installed tracker; sales users and admins can update it
+  (who changed it and when is recorded).
 
-### Sales Records
-- Paginated table with **search** (invoice, customer, phone, email, city, salesperson).
-- Filters: payment status, installation status, purchase date range, **"My sales only"**.
-- Sortable columns (date, invoice, customer, kW, total, paid).
-- **Add sale** form with field-level validation (all users).
-- **Edit / delete** and **Export to Excel** with the current filters (admin only).
-- Payment status (**Paid / Partial / Pending**) and **balance due** are calculated automatically from
-  *Total Amount* and *Amount Paid*, so they can never disagree.
+### Installation agents
+- **My Tasks** (the agent's dashboard): only tasks they picked up or accepted, with *To do / Waiting for my acceptance /
+  Completed* and **Update status**.
+- **Available Tasks:** open jobs any agent can **Pick up** (first come, first served; a race has exactly one winner).
+- **Notifications 🔔:** *New task assigned* → **clicking it accepts the task** and notifies the admins.
+- Agents see customer name, phone, location and system details, **never prices, payments or sales records**.
 
-### Installation Status
-- Card view of every sale with a **Purchased → Scheduled → Installed** progress tracker.
-- Search by invoice number, customer name or phone; tabs by status with live counts.
-- "Only sales I added" filter so sales staff can follow their own customers.
+### Admin
+- **Assign Agents:** a dispatch board of new records without an agent (newest first, searchable), with per-row or
+  **bulk assign**, reassign or remove, and each agent's current workload alongside.
+- **Agents:** every agent's workload and a timeline of everything done by or for them (assigned, picked up,
+  accepted, each status change).
+- **Notifications 🔔:** acceptances, pickups, status updates, new sign-ups.
+- **Upload Purchases:** Excel import with a validation preview; optionally email each customer their invoice.
+- **Customer Emails:** every email sent to customers with status (Sent / Failed / Skipped + reason) and **Resend**.
+- **Users:** approve sign-ups, change roles, enable or disable accounts, set passwords.
+- **API docs:** Swagger UI at `/swagger-ui.html`.
 
-### Upload Purchases (admin only)
-1. **Download the Excel template** (styled header, example row, instructions sheet).
-2. **Drag & drop** an `.xlsx` / `.xls` file (max 10 MB).
-3. Every row is **validated first (dry run)** and errors are listed by Excel row number.
-4. **Import** the valid rows; invalid rows are skipped and reported.
-- Upload history shows file name, time, rows, imported and skipped counts.
-
-### User management (admin only)
-- List all accounts with join date and last sign-in.
-- **Promote to Admin / demote to Sales user** and **enable / disable** accounts.
-- Safety rules: you can't demote or disable yourself, and the last active admin can't be removed.
-- Role and status changes apply **immediately**, even to users who are already signed in.
-
----
-
-## Screenshots
-
-| Login | Sales Records |
+| Sign in | Sales Records |
 |---|---|
-| ![Login](docs/screenshots/login.jpg) | ![Sales Records](docs/screenshots/sales-records.jpg) |
+| ![Sign in](docs/screenshots/login.jpg) | ![Sales Records](docs/screenshots/sales-records.jpg) |
 
-| Installation Status | Upload Purchases (admin) |
+| Installation Status | Swagger UI |
 |---|---|
-| ![Installation Status](docs/screenshots/installation-status.jpg) | ![Upload Purchases](docs/screenshots/upload-purchases.jpg) |
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 18, Vite 5, React Router 6, Recharts, plain CSS (no UI framework) |
-| Backend | Spring Boot 4.1 (Spring MVC, Spring Data JPA, Bean Validation), Java 21+ |
-| Security | Spring Security 7, OAuth2 Resource Server (JWT, HS256), BCrypt |
-| Excel | Apache POI 5 (`.xlsx` and `.xls`) |
-| Database | H2 (file-based, default for local dev) or PostgreSQL (`postgres` profile) |
-| Tests | JUnit 5, Spring Boot Test, MockMvc, AssertJ |
+| ![Installation Status](docs/screenshots/installation-status.jpg) | ![Swagger UI](docs/screenshots/swagger.jpg) |
 
 ---
 
 ## Roles & permissions
 
-| Capability | Sales user (anyone who registers) | Admin |
-|---|:---:|:---:|
-| Sign in, view dashboard | ✅ | ✅ |
-| View sales records | ✅ | ✅ |
-| Add a sale (form) | ✅ (installation always starts as *Pending*) | ✅ |
-| Track installation status | ✅ | ✅ |
-| Set installation status / date | ❌ | ✅ |
-| Edit or delete sales | ❌ | ✅ |
-| Export sales to Excel | ❌ | ✅ |
-| Upload purchase records (Excel), download template, upload history | ❌ | ✅ |
-| Manage users (roles, enable/disable) | ❌ | ✅ |
+| | Waiting for approval | Sales user | Agent | Admin |
+|---|:---:|:---:|:---:|:---:|
+| Own profile, change password | ✅ | ✅ | ✅ | ✅ |
+| Dashboard, sales records, add sales | | ✅ | | ✅ |
+| Update installation status | | ✅ any sale | ✅ own accepted tasks | ✅ |
+| My Tasks / Available Tasks / pick up / accept | | | ✅ | |
+| Notifications 🔔 | | | ✅ | ✅ |
+| Edit/delete sales, export, Excel upload, customer emails | | | | ✅ |
+| Assign agents, Agents page, approve sign-ups, users | | | | ✅ |
 
-Permissions are enforced **on the server** (Spring Security URL rules plus service checks). The UI hides
-admin-only controls, but hiding them is not what protects the data.
-
-### The first admin
-On startup the backend creates an admin account (`ADMIN_EMAIL`, default `admin@solarsales.local`) if no user
-with that email exists:
-- with the password from `ADMIN_PASSWORD`, if set, or
-- with a **random password printed once in the startup log** (look for `Created admin account`).
-
-Further admins are promoted from the **Users** page.
-
-> 🔐 **No secrets are committed to this repository.** The JWT key and admin password come from environment
-> variables or a git-ignored `backend/local.properties` (see [Configuration](#configuration)).
+Rules are enforced by the server (Spring Security + service checks). Role changes and disabled accounts take effect
+on the user's very next request.
 
 ---
 
 ## Getting started
 
-### Prerequisites
-- **Java 21+** (developed with JDK 26)
-- **Maven 3.9+**
-- **Node.js 18+** and npm
+**Prerequisites:** Java 21+, Maven 3.9+, Node.js 18+.
 
-### 1. Clone
 ```bash
 git clone https://github.com/kushwahasushil1993/solar-sales.git
 cd solar-sales
+
+# backend (http://localhost:8081)
+cd backend && mvn spring-boot:run
+
+# frontend (http://localhost:5173), in a second terminal
+cd frontend && npm install && npm run dev
 ```
 
-### 2. Start the backend (port 8081)
-```bash
-cd backend
-mvn spring-boot:run
-```
-Optionally copy the config template first, so sign-ins survive restarts and you choose the admin password:
-```bash
-cp local.properties.example local.properties   # then fill in app.jwt.secret and app.admin.password
-```
+1. Open **http://localhost:5173**. On a new database you're asked to **create the administrator account**.
+2. The backend seeds **48 demo sales** (`DEMO-0001`…) on an empty database (`app.seed-demo-data=false` turns it off).
+3. Team members sign up at **/register**; approve them on **Users** as Sales or Agent.
+4. Give new records to agents on **Assign Agents**.
 
-On first start it:
-- creates the database in `backend/data/` (H2 file DB),
-- creates the admin account and, if you didn't set a password, **prints a generated one in the log**,
-- seeds **48 demo sales** (`DEMO-0001` …) so the dashboard has data. Turn this off with `app.seed-demo-data=false`.
+> Always use the app through **http://localhost:5173** in development. The Vite dev server proxies `/api`,
+> `/oauth2`, `/login/oauth2` and the Swagger paths to the backend, so the browser sees one origin for the session
+> cookie and for OAuth callbacks.
 
-### 3. Start the frontend (port 5173)
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Open **http://localhost:5173**. The Vite dev server proxies `/api` to `http://localhost:8081`.
+**Production:** `npm run build` (static files in `frontend/dist`) and `mvn clean package` (jar in `backend/target`).
+Serve both on **one domain** and proxy `/api/`, `/oauth2/`, `/login/oauth2/`, `/swagger-ui`, `/v3/api-docs` to the
+backend with the `Host` and `X-Forwarded-Proto` headers, plus `client_max_body_size 10m` for Excel uploads. Use HTTPS and
+set `PUBLIC_URL` (used in password-reset links).
 
-### 4. Try it
-1. Sign in with the admin account, or register a new (sales user) account.
-2. As admin, go to **Upload Purchases** and drop `samples/sample-purchases.xlsx`.
-   It has 5 valid rows and 3 rows with deliberate errors, so you can see the validation report.
-3. Open **Installation Status** to follow the imported sales.
-
-### Production build
-```bash
-cd frontend && npm run build        # static files in frontend/dist
-cd backend  && mvn clean package    # runnable jar in backend/target
-java -jar backend/target/solar-sales-0.0.1-SNAPSHOT.jar
-```
-Serve `frontend/dist` from any static host / reverse proxy and route `/api` to the backend.
-
-### Using PostgreSQL
-```bash
-createdb solar_sales
-cd backend
-DB_URL=jdbc:postgresql://localhost:5432/solar_sales DB_USERNAME=postgres DB_PASSWORD='<your-db-password>' \
-  mvn spring-boot:run -Dspring-boot.run.profiles=postgres
-```
-Tables are created automatically (`ddl-auto=update`). Demo data is disabled in this profile.
+**PostgreSQL:** `DB_URL=jdbc:postgresql://localhost:5432/solar_sales DB_USERNAME=… DB_PASSWORD=… mvn spring-boot:run -Dspring-boot.run.profiles=postgres`
 
 ---
 
 ## Configuration
 
-Settings live in `backend/src/main/resources/application.properties`. **Secrets have no committed values**:
-set them as environment variables or in `backend/local.properties` (git-ignored, imported automatically;
-template: `backend/local.properties.example`).
+Defaults are in `backend/src/main/resources/application.properties`. **No secrets are committed:** put them in
+`backend/local.properties` (git-ignored, imported automatically; see `backend/local.properties.example`) or in
+environment variables. In `local.properties`, keep unused keys commented: an empty value overrides the environment
+variable.
 
-| Property | Env variable | Default | Purpose |
-|---|---|---|---|
-| `server.port` | `PORT` | `8081` | Backend HTTP port |
-| `app.jwt.secret` | `JWT_SECRET` | *(none)*: random key per start | Base64 key (≥ 32 bytes) that signs JWTs. Generate: `openssl rand -base64 48`. If unset, everyone is signed out on restart |
-| `app.jwt.expiry-hours` | — | `8` | Token lifetime |
-| `app.admin.email` | `ADMIN_EMAIL` | `admin@solarsales.local` | Admin created on startup |
-| `app.admin.password` | `ADMIN_PASSWORD` | *(none)*: generated and logged once | Password for that admin (only used when the account is first created) |
-| `app.admin.name` | `ADMIN_NAME` | `Administrator` | Display name for that admin |
-| `app.seed-demo-data` | — | `true` | Insert demo sales when the table is empty |
-| `app.cors.allowed-origins` | — | `http://localhost:5173` | Allowed browser origins |
-| `spring.servlet.multipart.max-file-size` | — | `10MB` | Max Excel upload size |
-| `spring.datasource.*` | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (postgres profile) | H2 file DB | Database connection |
+| Setting (property / env) | Default | Purpose |
+|---|---|---|
+| `app.mail.host` / `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` | *(none)* | SMTP for customer emails and password resets. Unset: emails are only logged and marked *Skipped* |
+| `app.company.*` / `COMPANY_NAME`, `COMPANY_EMAIL`, `COMPANY_PHONE`, `COMPANY_ADDRESS`, `COMPANY_GSTIN`, `COMPANY_WEBSITE` | `SolarSales` | Seller details on invoices and emails |
+| `app.sms.twilio.account-sid` / `TWILIO_ACCOUNT_SID`, `auth-token` / `TWILIO_AUTH_TOKEN`, `from` / `TWILIO_FROM` | *(none)* | SMS for mobile sign-in codes. Unset: codes are written to the backend log |
+| `app.sms.twilio.verify-service-sid` / `TWILIO_VERIFY_SERVICE_SID` | *(none)* | Use **Twilio Verify** (works on Twilio trial accounts) |
+| `app.sms.twilio.trial-template` / `TWILIO_TRIAL_TEMPLATE` | *(none)* | Trial only: send Twilio's predefined template (e.g. `sms_2fa`) |
+| `app.sms.twilio.trial-allow-fixed-code` | `false` | ⚠️ Local testing only: accept the trial template's fixed sample code |
+| `app.otp.message` | `Your verification code is {code}. It expires in {minutes} minutes. Do not share it.` | Own SMS text (paid Twilio) |
+| `app.sms.default-country-code` / `SMS_DEFAULT_COUNTRY_CODE` | `91` | Added to numbers typed without a country code |
+| `app.otp.ttl-seconds`, `resend-cooldown-seconds`, `max-per-hour`, `max-attempts`, `max-global-per-hour` | 300, 30, 5, 5, 200 | OTP limits |
+| `app.password-reset.ttl-minutes` | `30` | Reset-link lifetime |
+| `app.public-url` / `PUBLIC_URL` | request origin | Public address used in reset links (set in production) |
+| `app.oauth.google.client-id/secret`, `app.oauth.github.client-id/secret` (`GOOGLE_CLIENT_ID` …) | *(none)* | Google/GitHub buttons |
+| `app.seed-demo-data` | `true` | Demo sales on an empty database |
+| `PORT` | `8081` | Backend port |
 
-Example:
-```bash
-JWT_SECRET=$(openssl rand -base64 48) ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<choose-a-strong-password>' \
-  mvn spring-boot:run
+---
+
+## Setting up email, SMS and Google/GitHub
+
+**Gmail:** turn on 2-Step Verification, create an **App Password** at https://myaccount.google.com/apppasswords, then:
+```properties
+app.mail.host=smtp.gmail.com
+app.mail.port=587
+app.mail.username=you@gmail.com
+app.mail.password=<16-letter app password>
+app.mail.from=you@gmail.com
 ```
+Personal Gmail sends roughly 500 emails a day; any other SMTP service uses the same settings.
 
-To reset local data, stop the backend and delete `backend/data/`. This also deletes user accounts.
+**Twilio SMS:**
+- **Paid account:** set `account-sid`, `auth-token` and `from`. The app sends `app.otp.message` with a fresh code.
+- **Trial account:** custom SMS text is rejected (error 572006) and only verified recipients can be messaged. Use
+  **Twilio Verify** (create a Verify service, set `TWILIO_VERIFY_SERVICE_SID`); Twilio creates and checks the codes.
+  The `trial-template=sms_2fa` mode sends Twilio's predefined text, but that template always contains the same sample
+  code, so the app refuses it unless `trial-allow-fixed-code=true`, which is **insecure and only for local testing**.
+- Indian numbers: commercial SMS needs DLT registration; an India-focused provider (MSG91, Fast2SMS) may suit better.
+
+**Google / GitHub:** create an OAuth client with callback `http://localhost:5173/login/oauth2/code/google` (or
+`/github`) and set the client id and secret. GitHub uses `read:user user:email` to read a verified email; accounts
+without a verified email are refused.
+
+---
+
+## Customer email workflow
+
+Sent after the change is saved (never for a rolled-back change), on a background thread, recorded on
+**Customer Emails**. The *Email the customer* tick box controls each change. Excel imports only email invoices when
+you tick the box.
+
+| Trigger | Email | Invoice included |
+|---|---|:---:|
+| Sale added | **Invoice** (order confirmation) | ✅ |
+| Amount paid goes up | **Payment received** | ✅ |
+| Total changed or paid corrected down | **Updated invoice** | ✅ |
+| Installation → Scheduled / In progress / Installed | Status update (Installed = *completed*) | |
+
+Every email shows **only the completed progress steps** (✓ Order placed, ✓ Installation scheduled, …).
+Amounts use Indian grouping (₹3,25,000).
 
 ---
 
 ## Excel upload format
 
-Download the template from **Upload Purchases → Download Excel template** (or `GET /api/sales/template`).
-Required headers are highlighted in gold.
-
-| Column | Required | Accepted values / notes |
-|---|:---:|---|
-| Invoice No | ✅ | Unique. Duplicates (in the DB or repeated within the file) are rejected |
-| Purchase Date | ✅ | Excel date, or text `YYYY-MM-DD`, `DD-MM-YYYY`, `DD/MM/YYYY`, `DD.MM.YYYY`, `12-Oct-2026`. Not in the future |
-| Customer Name | ✅ | |
-| Capacity (kW) | ✅ | ≥ 0.1 |
-| Total Amount | ✅ | > 0. `₹`, `Rs`, `INR` and commas are allowed, e.g. `₹3,25,000` |
-| Phone | | Numbers or text (`9876543210` stays intact) |
-| Email | | Must be a valid email if present |
-| City, State | | |
-| Panel Type | | e.g. Monocrystalline, Polycrystalline, Bifacial, Thin-Film |
-| Panel Count | | Whole number |
-| Inverter Brand | | |
-| Amount Paid | | 0 … Total Amount (blank = 0) |
-| Installation Status | | `Pending`, `Scheduled` or `Installed` (case-insensitive, blank = Pending) |
-| Installation Date | | Not before Purchase Date |
-| Salesperson | | |
-
-**Flexible parsing**
-- The header row is detected automatically within the first 10 rows; column **order doesn't matter**.
-- Headers are matched ignoring case, spaces and punctuation, and common **aliases** work, e.g.
-  `Invoice Number`, `Bill No`, `Customer`, `Mobile`, `System Size`, `kW`, `Amount`, `Price`, `Paid`, `Advance`.
-- Unknown columns and blank rows are ignored; formula cells use their calculated value.
-- A file exported from **Sales Records → Export Excel** can be re-imported as is.
-
-**Validation report example**
-```
-Row 6  INV-2005  Amount paid cannot exceed total amount; Customer name is required
-Row 7  INV-2002  Duplicate invoice in file (first seen on row 3)
-Row 8  INV-2006  Capacity (kW): 'five' is not a valid number; Installation Status: Invalid installation status 'Done'
-```
+Download the template on **Upload Purchases**. Required columns: **Invoice No, Purchase Date, Customer Name,
+Capacity (kW), Total Amount**. Optional: Phone, Email, City, State, Panel Type, Panel Count, Inverter Brand,
+Amount Paid, Installation Status (`Pending / Scheduled / In progress / Installed`), Installation Date, Salesperson.
+Headers are matched loosely (any order, common aliases), dates may be Excel dates or `YYYY-MM-DD` / `DD-MM-YYYY`,
+amounts may contain `₹` and commas. Invalid rows are reported by Excel row number; valid rows are imported.
 
 ---
 
-## REST API
+## REST API & Swagger
 
-Base URL: `http://localhost:8081/api`. All endpoints except **register** and **login** require
-`Authorization: Bearer <token>`. 🔒 = admin only. Errors use the RFC 9457 *problem details* format
-(`{ status, title, detail, errors? }`).
+Full, always-current reference: **Swagger UI** at http://localhost:5173/swagger-ui.html (sign in to the web app
+first; Swagger uses the session and sends the CSRF token for you).
 
-### Auth
-| Method | Path | Body | Returns |
-|---|---|---|---|
-| POST | `/auth/register` | `{ fullName, email, password }` | `201 { token, expiresAt, user }` (role USER) |
-| POST | `/auth/login` | `{ email, password }` | `{ token, expiresAt, user }` |
-| GET | `/auth/me` | — | current user |
-
-### Sales
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/sales` | Query: `search, paymentStatus, installationStatus, panelType, from, to, mine, page, size, sortBy, direction` → `{ content, page, size, totalElements, totalPages }` |
-| GET | `/sales/{id}` | |
-| POST | `/sales` | Create. Non-admins: installation status forced to PENDING |
-| PUT | `/sales/{id}` | 🔒 Update |
-| DELETE | `/sales/{id}` | 🔒 Delete |
-| POST | `/sales/upload?dryRun=true\|false` | 🔒 multipart field `file`. Returns `{ batchId, fileName, totalRows, importedRows, failedRows, errors[] }` |
-| GET | `/sales/template` | 🔒 Excel template download |
-| GET | `/sales/export` | 🔒 Excel export (same filters as list) |
-
-### Dashboard, uploads, users
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/dashboard` | KPIs, monthly series, breakdowns, recent sales |
-| GET | `/uploads` | 🔒 Last 20 Excel uploads |
-| GET | `/users` | 🔒 All users |
-| PUT | `/users/{id}/role` | 🔒 `{ "role": "ADMIN" \| "USER" }` |
-| PUT | `/users/{id}/enabled` | 🔒 `{ "enabled": true \| false }` |
-
-### Quick curl example
-```bash
-TOKEN=$(curl -s -X POST localhost:8081/api/auth/login -H 'Content-Type: application/json' \
-  -d '{"email":"admin@solarsales.local","password":"<admin password>"}' | jq -r .token)
-
-curl -H "Authorization: Bearer $TOKEN" "localhost:8081/api/sales?search=pune&size=5"
-curl -H "Authorization: Bearer $TOKEN" -F file=@samples/sample-purchases.xlsx \
-  "localhost:8081/api/sales/upload?dryRun=true"
-```
-
-### Status codes
-| Code | Meaning |
+| Area | Endpoints |
 |---|---|
-| 400 | Validation failed (`errors` holds field → message), or an unreadable / invalid Excel file |
-| 401 | Not signed in, token expired/invalid, account disabled, or wrong email/password |
-| 403 | Signed in but not allowed (admin-only action, or a protected admin operation) |
-| 404 | Sale or user not found |
-| 409 | Invoice number or email already exists |
-| 413 | Upload larger than 10 MB |
+| Sign-in | `POST /api/auth/register`, `POST /api/auth/login` (form), `POST /api/auth/otp/request` · `/otp/verify` · `/otp/register`, `GET /oauth2/authorization/{google\|github}`, `POST /api/auth/logout`, `GET /api/auth/me` |
+| Passwords & setup | `POST /api/auth/password/forgot`, `GET/POST /api/auth/password/reset`, `PUT /api/account/password`, `GET /api/setup`, `POST /api/setup/admin` |
+| Sales | `GET/POST /api/sales`, `GET/PUT/DELETE /api/sales/{id}`, `PATCH /api/sales/{id}/installation`, `POST /api/sales/upload`, `GET /api/sales/template`, `GET /api/sales/export`, `GET /api/dashboard` |
+| Customer emails | `GET /api/sales/{id}/notifications`, `POST /api/sales/{id}/notifications/invoice`, `GET /api/notifications`, `POST /api/notifications/{id}/resend` |
+| Agents (agent) | `GET /api/tasks/available`, `GET /api/tasks/mine`, `POST /api/tasks/{id}/pick` · `/accept`, `PATCH /api/tasks/{id}/status` |
+| Agents (admin) | `GET /api/tasks/board`, `POST /api/tasks/assign` (bulk), `POST /api/tasks/{id}/assign` · `/unassign`, `GET /api/agents`, `GET /api/agents/{id}/activity`, `GET /api/activity` |
+| Notifications 🔔 | `GET /api/inbox`, `POST /api/inbox/{id}/open` (accepts an assigned task), `POST /api/inbox/read-all` |
+| Users (admin) | `GET /api/users`, `PUT /api/users/{id}/role` · `/enabled` · `/password` |
+
+All POST/PUT/PATCH/DELETE requests need the `X-XSRF-TOKEN` header (the value of the `XSRF-TOKEN` cookie). Errors use
+RFC 9457 problem details (`{ status, title, detail, errors? }`).
 
 ---
 
@@ -315,80 +234,62 @@ curl -H "Authorization: Bearer $TOKEN" -F file=@samples/sample-purchases.xlsx \
 
 ```
 solar-sales/
-├── backend/                         Spring Boot API
-│   ├── pom.xml
-│   ├── local.properties.example     template for git-ignored local secrets
-│   └── src/
-│       ├── main/java/com/solar/sales/
-│       │   ├── config/              AdminBootstrap, DemoDataSeeder, WebConfig (CORS)
-│       │   ├── controller/          Auth, Sale, Dashboard, User REST controllers
-│       │   ├── dto/                 Request/response records
-│       │   ├── entity/              SolarSale, AppUser, UploadBatch, enums
-│       │   ├── exception/           Custom exceptions + GlobalExceptionHandler
-│       │   ├── repository/          Spring Data JPA repositories
-│       │   ├── security/            SecurityConfig, JwtService, AuthUser
-│       │   └── service/             SaleService, ExcelService, ExcelColumn,
-│       │                            DashboardService, UserService
-│       ├── main/resources/          application.properties, application-postgres.properties
-│       └── test/                    SaleImportTest, SecurityTest
-├── frontend/                        React app (Vite)
-│   ├── vite.config.js               dev server + /api proxy
-│   └── src/
-│       ├── api.js                   fetch wrapper, JWT header, downloads
-│       ├── auth.jsx                 AuthProvider, RequireAuth, RequireAdmin
-│       ├── format.js                ₹ / date formatting, enums
-│       ├── components/              Layout, AuthLayout, Modal, SaleFormModal, Badge, ...
-│       └── pages/                   Login, Register, Dashboard, SalesRecords,
-│                                    Installations, UploadPurchases, Users
-├── samples/sample-purchases.xlsx    example upload with valid + invalid rows
-└── docs/screenshots/                images used in this README
+├── backend/                        Spring Boot API
+│   ├── local.properties.example    template for git-ignored secrets
+│   └── src/main/java/com/solar/sales/
+│       ├── config/                 OpenAPI, demo data, LegacySchemaCleanup (DB upgrades)
+│       ├── controller/             sales, dashboard, users, auth, setup, account, password reset
+│       ├── entity/ dto/ repository/ exception/
+│       ├── notification/           customer emails: templates, SMTP/log senders, workflow events
+│       ├── otp/                    mobile sign-in: phone numbers, OTP service, Twilio channels
+│       ├── passwordreset/          forgot-password links
+│       ├── security/               session security, OAuth, password/OTP sign-in, ActiveUserFilter
+│       ├── service/                sales, Excel import/export, dashboard, users
+│       └── task/                   agent tasks, activity log, in-app notifications
+├── frontend/src/
+│   ├── api.js · auth.jsx · format.js
+│   ├── components/                 layout, modals (sale, installation, assign agent, password), cards
+│   └── pages/                      dashboard, sales, installations, my/available tasks, assign agents,
+│                                   agents, notifications, customer emails, upload, users, sign-in pages
+├── samples/sample-purchases.xlsx   example upload with valid + invalid rows
+└── docs/screenshots/
 ```
 
 ---
 
 ## Architecture & design notes
 
-```
-Browser (React SPA) ──/api──▶ Vite proxy (dev) ──▶ Spring Boot :8081
-                                                     ├─ Security filter chain (JWT → AuthUser + ROLE_*)
-                                                     ├─ Controllers → Services → JPA repositories → H2/PostgreSQL
-                                                     └─ ExcelService (Apache POI) for template / import / export
-```
-
-- **Stateless JWT auth.** The token only carries the user id. On every request the user is re-loaded, so a
-  role change or a disabled account takes effect immediately rather than when the token expires.
-- **Two-step import.** The UI first calls upload with `dryRun=true` to show the validation report, then imports.
-  Valid rows are saved in one transaction; invalid rows never block valid ones.
-- **Validation in one place.** Excel rows are parsed into the same `SaleRequest` record used by the form, so
-  the API and the importer apply identical Bean Validation rules. Cell-level parse errors suppress duplicate
-  "is required" messages for the same field.
-- **Derived payment status.** `paymentStatus` is computed in the entity (`@PrePersist/@PreUpdate`) from amounts.
-- **Audit trail.** Every sale records who created it (`createdByName`) and its source (`MANUAL`, `EXCEL`, `DEMO`).
-- **Currency & locale.** Amounts are shown in Indian Rupees with Indian digit grouping (₹2,82,77,888 / ₹2.8Cr).
-  Change `format.js` to use another currency.
+- **One origin, server session.** The React app and API share an origin (Vite proxy / Nginx). Sign-in (password,
+  OTP or OAuth) stores the same principal in an HttpOnly session cookie; `csrf.spa()` issues a readable
+  `XSRF-TOKEN` that `api.js` echoes on writes.
+- **ActiveUserFilter** re-reads the account on every request: role changes apply at once, and disabled accounts and
+  sessions older than the last password change are signed out.
+- **Emails after commit:** sale changes publish events handled after the transaction commits, sent on virtual
+  threads, written in their own transaction, recorded with status and reason.
+- **Agents:** picking a task is one atomic `UPDATE … WHERE task_state = 'OPEN'`; every assignment, pickup, acceptance
+  and status change is written to an activity log and announced in the 🔔 inbox.
+- **Database upgrades:** `ddl-auto=update` adds tables and columns; `LegacySchemaCleanup` (idempotent, H2 and
+  PostgreSQL) relaxes old NOT NULL columns and turns enum columns into plain text, so new statuses and roles never
+  break existing databases.
 
 ---
 
 ## Testing
 
 ```bash
-cd backend
-mvn test
+cd backend && mvn test        # 130 tests
+cd frontend && npm run build  # production build check
 ```
 
-14 tests:
+| Area | Tests |
+|---|---|
+| Security & accounts | SecurityTest (10), PasswordAuthTest (7), AccountAndSetupTest (8), PasswordResetTest (7), ApprovalTest (4), CsrfCookieTest (2), OAuthSignInTest (7) |
+| Mobile sign-in | OtpAuthTest (13), PhoneNumbersTest (18), LocalCodeChannelTest (3), TwilioVerifyChannelTest (4), TwilioTrialTemplateChannelTest (4) |
+| Customer emails | NotificationWorkflowTest (11), EmailTemplatesTest (8) |
+| Sales & agents | SaleImportTest (7), InstallationUpdateTest (5), TaskWorkflowTest (9) |
+| Upgrades | LegacySchemaCleanupTest (3): old databases accept new statuses, roles and email types |
 
-- **SaleImportTest** (7): header aliases and column order, `₹`/comma amounts, text and serial dates, numeric
-  phone numbers, duplicate invoices (in DB and in file), dry run, missing required columns, non-Excel files,
-  template round trip, export → re-import round trip.
-- **SecurityTest** (7): unauthenticated access, registration (role, duplicate email, password rules), wrong
-  password, user vs. admin permissions on every protected endpoint, immediate effect of role changes and
-  disabling, admin self-protection.
-
-Frontend production build check:
-```bash
-cd frontend && npm run build
-```
+Tests never contact Google, GitHub, Twilio or an SMTP server (fake senders and `MockRestServiceServer`).
 
 ---
 
@@ -396,20 +297,10 @@ cd frontend && npm run build
 
 | Problem | Fix |
 |---|---|
-| `Port 8081 was already in use` | Start with another port: `PORT=9090 mvn spring-boot:run`, and update the proxy target in `frontend/vite.config.js` |
-| UI shows "Cannot reach the server" | The backend isn't running, or it runs on a different port than the Vite proxy expects |
-| Lost the generated admin password | Promote another account from the Users page, or stop the backend, delete `backend/data/` (wipes all data) and restart with `ADMIN_PASSWORD` set |
-| Signed out after every restart | Set `JWT_SECRET` or `app.jwt.secret` in `backend/local.properties` |
-| "Could not find a header row" | Keep the header row in the first 10 rows and include at least two recognised column names |
-| Dates imported wrongly | Use real Excel date cells or `YYYY-MM-DD`; ambiguous `MM/DD` text is read as `DD/MM` |
-| Got signed out unexpectedly | The token expired (8 h) or an admin disabled the account |
-
----
-
-## Roadmap ideas
-
-- Password reset by email, and refresh tokens
-- Per-sale activity log (who changed installation status and when)
-- PDF invoice generation
-- Docker Compose (backend + PostgreSQL + Nginx serving the frontend)
-- Restricting sales users to only their own customers, if required
+| "Invalid email or password" for an existing account | The account may have no password (mobile/Google sign-up). Use *Forgot password?*, or an admin uses *Set password* |
+| Signed in but stuck on *Waiting for approval* | An admin must approve the account on **Users** |
+| No SMS arrives | No SMS provider set (code is in the backend log), a trial Twilio account (see above), or the number has fewer than 10 digits |
+| Customer emails show *Skipped* | SMTP not configured, or the customer has no email |
+| OAuth `redirect_uri_mismatch` / callback goes to port 8081 | Register `http://localhost:5173/login/oauth2/code/…` and open the app on port 5173 |
+| "Your session token is missing or expired" | Refresh the page (new CSRF token) |
+| Port 8081 in use | `PORT=9090 mvn spring-boot:run` and update the proxy target in `frontend/vite.config.js` |

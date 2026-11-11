@@ -1,19 +1,24 @@
 package com.solar.sales.service;
 
 import com.solar.sales.dto.*;
+import com.solar.sales.dto.InstallationUpdate;
 import com.solar.sales.entity.InstallationStatus;
+import com.solar.sales.entity.NotificationType;
 import com.solar.sales.entity.PaymentStatus;
 import com.solar.sales.entity.SolarSale;
 import com.solar.sales.entity.UploadBatch;
+import com.solar.sales.exception.BadRequestException;
 import com.solar.sales.exception.DuplicateInvoiceException;
 import com.solar.sales.exception.InvalidExcelException;
 import com.solar.sales.exception.ResourceNotFoundException;
+import com.solar.sales.notification.SaleNotificationEvent;
 import com.solar.sales.repository.SolarSaleRepository;
 import com.solar.sales.repository.UploadBatchRepository;
 import com.solar.sales.security.AuthUser;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -38,13 +43,15 @@ public class SaleService {
     private final UploadBatchRepository uploadRepository;
     private final ExcelService excelService;
     private final Validator validator;
+    private final ApplicationEventPublisher events;
 
     public SaleService(SolarSaleRepository saleRepository, UploadBatchRepository uploadRepository,
-                       ExcelService excelService, Validator validator) {
+                       ExcelService excelService, Validator validator, ApplicationEventPublisher events) {
         this.saleRepository = saleRepository;
         this.uploadRepository = uploadRepository;
         this.excelService = excelService;
         this.validator = validator;
+        this.events = events;
     }
 
     // ---------------------------------------------------------------- queries
@@ -110,8 +117,9 @@ public class SaleService {
 
     // ---------------------------------------------------------------- CRUD
 
+    /** @param notify email the customer their invoice (after commit; skipped if they have no email) */
     @Transactional
-    public SaleResponse create(SaleRequest request, AuthUser user) {
+    public SaleResponse create(SaleRequest request, AuthUser user, boolean notify) {
         if (saleRepository.existsByInvoiceNumberIgnoreCase(request.invoiceNumber().trim())) {
             throw new DuplicateInvoiceException(request.invoiceNumber());
         }
@@ -119,22 +127,86 @@ public class SaleService {
         apply(sale, request);
         sale.setSource("MANUAL");
         sale.setCreatedBy(user.id(), user.fullName());
-        if (!user.isAdmin()) {
-            // installation progress is managed by admins; users can only track it
-            sale.setInstallationStatus(InstallationStatus.PENDING);
-            sale.setInstallationDate(null);
+        if (sale.getInstallationStatus() != InstallationStatus.PENDING) {
+            sale.recordInstallationUpdate(user.fullName());
         }
-        return SaleResponse.from(saleRepository.save(sale));
+        saleRepository.save(sale);
+        if (notify) {
+            publish(sale, NotificationType.INVOICE, user);
+        }
+        return SaleResponse.from(sale);
     }
 
+    /**
+     * @param notify email the customer about workflow progress: a new installation status (scheduled, in progress,
+     *               installed), and the full invoice whenever an amount changes (payment received / updated invoice).
+     */
     @Transactional
-    public SaleResponse update(Long id, SaleRequest request) {
+    public SaleResponse update(Long id, SaleRequest request, AuthUser user, boolean notify) {
         SolarSale sale = find(id);
         if (saleRepository.existsByInvoiceNumberIgnoreCaseAndIdNot(request.invoiceNumber().trim(), id)) {
             throw new DuplicateInvoiceException(request.invoiceNumber());
         }
+        InstallationStatus statusBefore = sale.getInstallationStatus();
+        BigDecimal paidBefore = sale.getAmountPaid();
+        BigDecimal totalBefore = sale.getTotalAmount();
         apply(sale, request);
-        return SaleResponse.from(saleRepository.saveAndFlush(sale));
+        if (sale.getInstallationStatus() != statusBefore) {
+            sale.recordInstallationUpdate(user.fullName());
+        }
+        saleRepository.saveAndFlush(sale);
+
+        if (notify) {
+            NotificationType statusEmail = sale.getInstallationStatus() != statusBefore
+                    ? NotificationType.forInstallationStatus(sale.getInstallationStatus()) : null;
+            if (statusEmail != null) {
+                publish(sale, statusEmail, user);
+            }
+            boolean totalChanged = sale.getTotalAmount().compareTo(totalBefore) != 0;
+            int paidChange = sale.getAmountPaid().compareTo(paidBefore);
+            if (totalChanged || paidChange != 0) {
+                // any amount change sends the full, updated invoice
+                publish(sale, !totalChanged && paidChange > 0
+                        ? NotificationType.PAYMENT_RECEIVED : NotificationType.INVOICE_UPDATED, user);
+            }
+        }
+        return SaleResponse.from(sale);
+    }
+
+    /**
+     * Installation progress only; allowed for sales users as well as admins. Marking a sale installed without a
+     * date uses today. The customer is emailed about a new status when {@code notify} is set.
+     */
+    @Transactional
+    public SaleResponse updateInstallation(Long id, InstallationUpdate update, AuthUser user, boolean notify) {
+        SolarSale sale = find(id);
+        InstallationStatus status = update.installationStatus();
+        LocalDate date = update.installationDate();
+        if (status == InstallationStatus.INSTALLED && date == null) {
+            date = LocalDate.now();
+        }
+        if (date != null && date.isBefore(sale.getPurchaseDate())) {
+            throw new BadRequestException("installationDate", "Installation date cannot be before the purchase date");
+        }
+        InstallationStatus before = sale.getInstallationStatus();
+        sale.setInstallationStatus(status);
+        sale.setInstallationDate(date);
+        if (status != before) {
+            sale.recordInstallationUpdate(user.fullName());
+        }
+        saleRepository.saveAndFlush(sale);
+
+        if (notify && status != before) {
+            NotificationType email = NotificationType.forInstallationStatus(status);
+            if (email != null) {
+                publish(sale, email, user);
+            }
+        }
+        return SaleResponse.from(sale);
+    }
+
+    private void publish(SolarSale sale, NotificationType type, AuthUser user) {
+        events.publishEvent(new SaleNotificationEvent(sale.getId(), type, user.fullName()));
     }
 
     @Transactional
@@ -175,10 +247,11 @@ public class SaleService {
 
     /**
      * Imports every valid row and reports the invalid ones. With {@code dryRun} nothing is saved, so the
-     * UI can show a validation preview before the user confirms the import.
+     * UI can show a validation preview before the user confirms the import. Customers are only emailed their
+     * invoice when {@code emailInvoices} is set (imports are often historical records).
      */
     @Transactional
-    public UploadResult importExcel(MultipartFile file, boolean dryRun, AuthUser user) {
+    public UploadResult importExcel(MultipartFile file, boolean dryRun, AuthUser user, boolean emailInvoices) {
         String fileName = Optional.ofNullable(file.getOriginalFilename()).orElse("upload.xlsx");
         String lower = fileName.toLowerCase(Locale.ROOT);
         if (file.isEmpty()) {
@@ -243,6 +316,9 @@ public class SaleService {
         Long batchId = null;
         if (!dryRun) {
             saleRepository.saveAll(valid);
+            if (emailInvoices) {
+                valid.forEach(sale -> publish(sale, NotificationType.INVOICE, user));
+            }
             batchId = uploadRepository.save(new UploadBatch(fileName, rows.size(), valid.size(), errors.size())).getId();
         }
         return new UploadResult(batchId, fileName, rows.size(), valid.size(), errors.size(), errors);

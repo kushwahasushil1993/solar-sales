@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import Modal from './Modal.jsx';
 import { api } from '../api.js';
-import { useAuth } from '../auth.jsx';
 import { INSTALLATION_STATUSES, PANEL_TYPES, money, titleCase } from '../format.js';
 
 // local date, not toISOString(): in IST that would give yesterday before 05:30
@@ -25,11 +24,11 @@ function toPayload(form) {
 }
 
 export default function SaleFormModal({ sale, onClose, onSaved }) {
-  const { isAdmin } = useAuth();
   const [form, setForm] = useState(() => toForm(sale));
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [notifyCustomer, setNotifyCustomer] = useState(true);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const balance = Math.max(0, (Number(form.totalAmount) || 0) - (Number(form.amountPaid) || 0));
@@ -40,7 +39,9 @@ export default function SaleFormModal({ sale, onClose, onSaved }) {
     setErrors({});
     setFormError('');
     try {
-      const saved = sale ? await api.updateSale(sale.id, toPayload(form)) : await api.createSale(toPayload(form));
+      const saved = sale
+        ? await api.updateSale(sale.id, toPayload(form), notifyCustomer)
+        : await api.createSale(toPayload(form), notifyCustomer);
       onSaved(saved);
     } catch (err) {
       const fe = { ...err.fieldErrors };
@@ -69,6 +70,12 @@ export default function SaleFormModal({ sale, onClose, onSaved }) {
       onClose={onClose}
       footer={
         <>
+          <label className={`checkbox footer-check ${form.email ? '' : 'disabled'}`}
+                 title={form.email ? '' : 'Add the customer’s email to send emails'}>
+            <input type="checkbox" checked={notifyCustomer && !!form.email} disabled={!form.email}
+                   onChange={(e) => setNotifyCustomer(e.target.checked)} />
+            {sale ? 'Email the customer about status changes (amount changes include the updated invoice)' : 'Email the invoice to the customer'}
+          </label>
           <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button type="submit" form="sale-form" className="btn btn-primary" disabled={saving}>
             {saving ? 'Saving…' : sale ? 'Save changes' : 'Add sale'}
@@ -112,21 +119,14 @@ export default function SaleFormModal({ sale, onClose, onSaved }) {
             {field('systemCapacityKw', 'Capacity (kW)', { required: true, type: 'number', step: '0.01', min: '0' })}
             {field('panelCount', 'Panel count', { type: 'number', min: '0' })}
             {field('inverterBrand', 'Inverter brand')}
-            {isAdmin && (
-              <>
-                <label className="field">
-                  <span>Installation status</span>
-                  <select value={form.installationStatus} onChange={set('installationStatus')}>
-                    {INSTALLATION_STATUSES.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}
-                  </select>
-                </label>
-                {field('installationDate', 'Installation date', { type: 'date' })}
-              </>
-            )}
+            <label className="field">
+              <span>Installation status</span>
+              <select value={form.installationStatus} onChange={set('installationStatus')}>
+                {INSTALLATION_STATUSES.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}
+              </select>
+            </label>
+            {field('installationDate', 'Installation date', { type: 'date' })}
           </div>
-          {!isAdmin && (
-            <p className="muted small">The installation starts as Pending; an admin schedules it. Track it on the Installation Status page.</p>
-          )}
         </fieldset>
 
         <fieldset>

@@ -60,6 +60,7 @@ public class SolarSale {
     @Column(name = "payment_status", nullable = false, length = 20)
     private PaymentStatus paymentStatus;
 
+    // LegacySchemaCleanup keeps this a plain VARCHAR column so statuses can be added later
     @Enumerated(EnumType.STRING)
     @Column(name = "installation_status", nullable = false, length = 20)
     private InstallationStatus installationStatus = InstallationStatus.PENDING;
@@ -79,6 +80,30 @@ public class SolarSale {
 
     @Column(name = "created_by_name", length = 100)
     private String createdByName;
+
+    /** Who last changed the installation status, and when (sales users and admins). */
+    @Column(name = "installation_updated_by", length = 100)
+    private String installationUpdatedBy;
+
+    @Column(name = "installation_updated_at")
+    private LocalDateTime installationUpdatedAt;
+
+    /** The installation task: which agent handles it (see TaskState). */
+    @Column(name = "agent_id")
+    private Long agentId;
+
+    @Column(name = "agent_name", length = 100)
+    private String agentName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "task_state", nullable = false, length = 20, columnDefinition = "varchar(20) default 'OPEN'")
+    private TaskState taskState = TaskState.OPEN;
+
+    @Column(name = "assigned_at")
+    private LocalDateTime assignedAt;
+
+    @Column(name = "accepted_at")
+    private LocalDateTime acceptedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -156,6 +181,40 @@ public class SolarSale {
     public Long getCreatedById() { return createdById; }
     public String getCreatedByName() { return createdByName; }
     public void setCreatedBy(Long id, String name) { this.createdById = id; this.createdByName = name; }
+    public String getInstallationUpdatedBy() { return installationUpdatedBy; }
+    public LocalDateTime getInstallationUpdatedAt() { return installationUpdatedAt; }
+    public void recordInstallationUpdate(String byName) {
+        this.installationUpdatedBy = byName;
+        this.installationUpdatedAt = LocalDateTime.now();
+    }
+    public Long getAgentId() { return agentId; }
+    public String getAgentName() { return agentName; }
+    public TaskState getTaskState() { return taskState; }
+    public LocalDateTime getAssignedAt() { return assignedAt; }
+    public LocalDateTime getAcceptedAt() { return acceptedAt; }
+
+    /** Admin assigns the task; the agent still has to accept it. */
+    public void assignTo(Long agentId, String agentName) {
+        this.agentId = agentId;
+        this.agentName = agentName;
+        this.taskState = TaskState.ASSIGNED;
+        this.assignedAt = LocalDateTime.now();
+        this.acceptedAt = null;
+    }
+
+    public void markAccepted() {
+        this.taskState = TaskState.ACCEPTED;
+        this.acceptedAt = LocalDateTime.now();
+    }
+
+    public void unassign() {
+        this.agentId = null;
+        this.agentName = null;
+        this.taskState = TaskState.OPEN;
+        this.assignedAt = null;
+        this.acceptedAt = null;
+    }
+
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

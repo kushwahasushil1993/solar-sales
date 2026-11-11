@@ -5,6 +5,8 @@ import Badge from '../components/Badge.jsx';
 import Modal from '../components/Modal.jsx';
 import Pagination from '../components/Pagination.jsx';
 import SaleFormModal from '../components/SaleFormModal.jsx';
+import CustomerEmailsModal from '../components/CustomerEmailsModal.jsx';
+import InstallationModal from '../components/InstallationModal.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { INSTALLATION_STATUSES, PAYMENT_STATUSES, date, money, number, titleCase } from '../format.js';
 
@@ -34,6 +36,8 @@ export default function SalesRecords() {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null); // null = closed, {} = new, sale = edit
   const [deleting, setDeleting] = useState(null);
+  const [emailing, setEmailing] = useState(null);
+  const [installing, setInstalling] = useState(null);
 
   // debounce the free-text search so we don't query on every keystroke
   useEffect(() => {
@@ -133,7 +137,7 @@ export default function SalesRecords() {
                     {sort.by === c.key && <span className="sort">{sort.dir === 'asc' ? ' ▲' : ' ▼'}</span>}
                   </th>
                 ))}
-                {isAdmin && <th />}
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -165,12 +169,16 @@ export default function SalesRecords() {
                     <Badge value={s.installationStatus} kind="install" />
                     {s.installationDate && <div className="muted small">{date(s.installationDate)}</div>}
                   </td>
-                  {isAdmin && (
-                    <td className="actions">
-                      <button className="icon-btn" title="Edit" onClick={() => setEditing(s)}>✎</button>
-                      <button className="icon-btn danger" title="Delete" onClick={() => setDeleting(s)}>🗑</button>
-                    </td>
-                  )}
+                  <td className="actions">
+                    <button className="icon-btn" title="Update installation status" onClick={() => setInstalling(s)}>⚡</button>
+                    {isAdmin && (
+                      <>
+                        <button className="icon-btn" title="Customer emails / send invoice" onClick={() => setEmailing(s)}>✉</button>
+                        <button className="icon-btn" title="Edit" onClick={() => setEditing(s)}>✎</button>
+                        <button className="icon-btn danger" title="Delete" onClick={() => setDeleting(s)}>🗑</button>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
               {data && data.content.length === 0 && (
@@ -198,6 +206,20 @@ export default function SalesRecords() {
           onSaved={(saved) => {
             notify(editing.id ? `Updated ${saved.invoiceNumber}` : `Added ${saved.invoiceNumber}`);
             setEditing(null);
+            load();
+          }}
+        />
+      )}
+
+      {emailing && <CustomerEmailsModal sale={emailing} onClose={() => setEmailing(null)} />}
+
+      {installing && (
+        <InstallationModal
+          sale={installing}
+          onClose={() => setInstalling(null)}
+          onSaved={(saved) => {
+            notify(`${saved.invoiceNumber}: ${titleCase(saved.installationStatus)}`);
+            setInstalling(null);
             load();
           }}
         />

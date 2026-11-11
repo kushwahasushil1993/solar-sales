@@ -268,7 +268,7 @@ public class ExcelService {
                     "• Invoice No must be unique — rows whose invoice already exists are skipped.",
                     "• Dates: use an Excel date, or text as YYYY-MM-DD / DD-MM-YYYY / DD/MM/YYYY.",
                     "• Amounts may include ₹ or commas (e.g. ₹3,25,000).",
-                    "• Installation Status: Pending, Scheduled or Installed (blank = Pending).",
+                    "• Installation Status: Pending, Scheduled, In progress or Installed (blank = Pending).",
                     "• Payment status is calculated automatically from Total Amount and Amount Paid.",
                     "• Valid rows are imported even if other rows have errors; the errors are listed after upload.",
                     "• Delete the example row before uploading your data."

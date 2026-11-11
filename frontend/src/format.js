@@ -22,8 +22,21 @@ export function monthLabel(yyyyMm) {
   return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 }
 
-export const titleCase = (s) => (s ? s.charAt(0) + s.slice(1).toLowerCase() : '');
+// "IN_PROGRESS" → "In progress"
+export const titleCase = (s) => (s ? s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ') : '');
+
+/** What the user typed in an "Email or mobile number" field: 'email', 'phone' or null. */
+export function identifierKind(value) {
+  const v = (value || '').trim();
+  if (!v) return null;
+  if (/[@a-z]/i.test(v)) return 'email';
+  if (/^[+\d][\d\s().-]*$/.test(v)) return 'phone';
+  return null;
+}
+
+/** Enough digits to be a mobile number (10 for India, more with a country code). */
+export const looksLikeFullPhone = (value) => (value || '').replace(/\D/g, '').length >= 10;
 
 export const PAYMENT_STATUSES = ['PAID', 'PARTIAL', 'PENDING'];
-export const INSTALLATION_STATUSES = ['PENDING', 'SCHEDULED', 'INSTALLED'];
+export const INSTALLATION_STATUSES = ['PENDING', 'SCHEDULED', 'IN_PROGRESS', 'INSTALLED'];
 export const PANEL_TYPES = ['Monocrystalline', 'Polycrystalline', 'Bifacial', 'Thin-Film'];

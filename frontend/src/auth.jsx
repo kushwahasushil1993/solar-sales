@@ -1,81 +1,120 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
-import { api, configureAuth } from './api.js';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { api, setUnauthorizedHandler } from './api.js';
+import PendingApproval from './pages/PendingApproval.jsx';
 
-const STORAGE_KEY = 'solar-sales-auth';
 const AuthContext = createContext(null);
+const RETURN_KEY = 'solar-sales-return-to';
 
-function loadStored() {
+/** Remember where to go after the OAuth round trip (the backend always lands on "/"). */
+export function rememberReturnPath(path) {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved?.token && new Date(saved.expiresAt) > new Date()) return saved;
+    if (path && path !== '/') sessionStorage.setItem(RETURN_KEY, path);
   } catch {
-    /* storage unavailable or corrupt */
+    /* storage unavailable: user lands on the dashboard instead */
   }
-  return null;
 }
 
-function store(session) {
+function takeReturnPath() {
   try {
-    if (session) localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    else localStorage.removeItem(STORAGE_KEY);
+    const path = sessionStorage.getItem(RETURN_KEY);
+    sessionStorage.removeItem(RETURN_KEY);
+    return path;
   } catch {
-    /* ignore: session just won't survive a reload */
+    return null;
   }
 }
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(() => {
-    const saved = loadStored();
-    configureAuth(saved?.token ?? null);
-    return saved;
-  });
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [expired, setExpired] = useState(false);
 
-  const logout = useCallback(() => {
-    store(null);
-    configureAuth(null);
-    setSession(null);
-  }, []);
-
-  const start = useCallback((auth) => {
-    const next = { token: auth.token, expiresAt: auth.expiresAt, user: auth.user };
-    store(next);
-    configureAuth(next.token);
-    setExpired(false);
-    setSession(next);
-    return next.user;
-  }, []);
-
   useEffect(() => {
-    configureAuth(session?.token ?? null, () => {
+    setUnauthorizedHandler(() => {
       setExpired(true);
-      logout();
+      setUser(null);
     });
-  }, [session, logout]);
-
-  // refresh the profile on load: an admin may have changed this user's role since the last visit
-  useEffect(() => {
-    if (!session) return;
+    // the session lives in an HttpOnly cookie; asking the backend is the only way to know who is signed in
     api.me()
-      .then((user) => setSession((s) => {
-        if (!s) return s;
-        const next = { ...s, user };
-        store(next);
-        return next;
-      }))
-      .catch(() => {});
+      .then((me) => {
+        setUser(me);
+        const back = takeReturnPath();
+        if (back) navigate(back, { replace: true });
+      })
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // email + password: the backend sets the session cookie, then we load the profile
+  const loginWithPassword = useCallback(async (email, password) => {
+    await api.login(email, password);
+    const me = await api.me();
+    setExpired(false);
+    setUser(me);
+    return me;
+  }, []);
+
+  const loadMe = useCallback(async () => {
+    const me = await api.me();
+    setExpired(false);
+    setUser(me);
+    return me;
+  }, []);
+
+  /**
+   * Mobile number + SMS code. Existing account → signed in, returns { user }.
+   * New number → returns { needsRegistration: true, phone, maskedPhone }; finish with completePhoneRegistration.
+   */
+  const loginWithOtp = useCallback(async (phone, code) => {
+    const result = await api.verifyOtp(phone, code);
+    if (result?.status === 'REGISTRATION_REQUIRED') {
+      return { needsRegistration: true, phone: result.phone, maskedPhone: result.maskedPhone };
+    }
+    return { user: await loadMe() };
+  }, [loadMe]);
+
+  const completePhoneRegistration = useCallback(async (fullName, email, requestedRole) => {
+    await api.completePhoneRegistration(fullName, email, requestedRole);
+    return loadMe();
+  }, [loadMe]);
+
+  const register = useCallback(async (fullName, email, password, requestedRole) => {
+    await api.register(fullName, email, password, requestedRole);
+    return loginWithPassword(email, password);
+  }, [loginWithPassword]);
+
+  // re-read the profile, e.g. to notice that an admin approved this account
+  const refreshUser = useCallback(async () => {
+    const me = await api.me();
+    setUser(me);
+    return me;
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.logout();
+    } catch {
+      /* session already gone */
+    }
+    setExpired(false);
+    setUser(null);
+  }, []);
+
   const value = useMemo(() => ({
-    user: session?.user ?? null,
-    isAdmin: session?.user?.role === 'ADMIN',
+    user,
+    loading,
+    isAdmin: user?.role === 'ADMIN',
     expired,
-    login: async (email, password) => start(await api.login(email, password)),
-    register: async (fullName, email, password) => start(await api.register(fullName, email, password)),
+    loginWithPassword,
+    loginWithOtp,
+    completePhoneRegistration,
+    register,
+    refreshUser,
     logout,
-  }), [session, expired, start, logout]);
+  }), [user, loading, expired, loginWithPassword, loginWithOtp, completePhoneRegistration, register, refreshUser, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -83,9 +122,28 @@ export function AuthProvider({ children }) {
 export const useAuth = () => useContext(AuthContext);
 
 export function RequireAuth({ children }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const location = useLocation();
+
+  if (loading) return <div className="loading full-page">Loading…</div>;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (user.role === 'PENDING') return <PendingApproval />;
+  return children;
+}
+
+/** Renders children only for the given roles; agents are sent to their task page, others see a notice. */
+export function RequireRole({ roles, children }) {
+  const { user } = useAuth();
+  if (!roles.includes(user?.role)) {
+    if (user?.role === 'AGENT') return <Navigate to="/tasks" replace />;
+    return (
+      <div className="card denied">
+        <div className="denied-icon">🔒</div>
+        <h3>Not available</h3>
+        <p className="muted">Your account doesn't have access to this page.</p>
+      </div>
+    );
+  }
   return children;
 }
 

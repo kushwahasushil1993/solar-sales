@@ -76,6 +76,9 @@ public class DemoDataSeeder implements CommandLineRunner {
             if (age > 30) {
                 s.setInstallationStatus(InstallationStatus.INSTALLED);
                 s.setInstallationDate(purchased.plusDays(7 + rnd.nextInt(20)));
+            } else if (age > 20) {
+                s.setInstallationStatus(InstallationStatus.IN_PROGRESS);
+                s.setInstallationDate(purchased.plusDays(10));
             } else if (age > 7) {
                 s.setInstallationStatus(InstallationStatus.SCHEDULED);
                 s.setInstallationDate(today.plusDays(1 + rnd.nextInt(14)));

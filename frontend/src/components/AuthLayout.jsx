@@ -15,6 +15,7 @@ export default function AuthLayout({ title, subtitle, children, footer }) {
             <li>Record sales and track payments</li>
             <li>Follow each installation from pending to done</li>
             <li>Admins bulk-import purchase records from Excel</li>
+            <li>Sign in with email, Google or GitHub</li>
           </ul>
         </div>
       </div>

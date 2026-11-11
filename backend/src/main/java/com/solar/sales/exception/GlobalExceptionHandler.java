@@ -2,8 +2,6 @@ package com.solar.sales.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -30,14 +28,28 @@ public class GlobalExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
 
-    @ExceptionHandler(BadCredentialsException.class)
-    public ProblemDetail handleBadCredentials(BadCredentialsException ex) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+    @ExceptionHandler(com.solar.sales.otp.OtpException.class)
+    public ProblemDetail handleOtp(com.solar.sales.otp.OtpException ex) {
+        return ProblemDetail.forStatusAndDetail(ex.status(), ex.getMessage());
     }
 
-    @ExceptionHandler(DisabledException.class)
-    public ProblemDetail handleDisabled(DisabledException ex) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "This account is disabled. Contact an administrator.");
+    @ExceptionHandler(com.solar.sales.otp.InvalidPhoneException.class)
+    public ProblemDetail handleInvalidPhone(com.solar.sales.otp.InvalidPhoneException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setProperty("errors", java.util.Map.of("phone", ex.getMessage()));
+        return problem;
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ProblemDetail handleBadRequest(BadRequestException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setProperty("errors", java.util.Map.of(ex.field(), ex.getMessage()));
+        return problem;
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ProblemDetail handleConflict(ConflictException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(ForbiddenOperationException.class)
