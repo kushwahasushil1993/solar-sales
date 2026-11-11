@@ -17,6 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import com.solar.sales.support.TestSenders;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayOutputStream;
@@ -27,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
+@Import(TestSenders.class)
 class SaleImportTest {
 
     private static final AuthUser ADMIN = new AuthUser(1L, "admin@test.local", "Test Admin", Role.ADMIN);
@@ -54,7 +57,7 @@ class SaleImportTest {
                 new Object[]{null, null, null, null, null, null, null, null}, // blank row is ignored
                 new Object[]{"", "INV-4", "2026-03-03", 2, 100000, 200000, null, "Unknown"});
 
-        UploadResult result = saleService.importExcel(xlsx("purchases.xlsx", file), false, ADMIN);
+        UploadResult result = saleService.importExcel(xlsx("purchases.xlsx", file), false, ADMIN, false);
 
         assertThat(result.totalRows()).isEqualTo(5);
         assertThat(result.importedRows()).isEqualTo(2);
@@ -90,9 +93,9 @@ class SaleImportTest {
         byte[] file = workbook(
                 new Object[]{"Invoice No", "Purchase Date", "Customer Name", "Capacity (kW)", "Total Amount"},
                 new Object[]{"INV-9", "2026-01-15", "Ramesh", 5, 300000});
-        saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN);
+        saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN, false);
 
-        UploadResult second = saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN);
+        UploadResult second = saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN, false);
 
         assertThat(second.importedRows()).isZero();
         assertThat(second.errors().getFirst().message()).contains("already exists");
@@ -105,7 +108,7 @@ class SaleImportTest {
                 new Object[]{"Invoice No", "Purchase Date", "Customer Name", "Capacity (kW)", "Total Amount"},
                 new Object[]{"INV-5", "2026-01-15", "Ramesh", 5, 300000});
 
-        UploadResult result = saleService.importExcel(xlsx("a.xlsx", file), true, ADMIN);
+        UploadResult result = saleService.importExcel(xlsx("a.xlsx", file), true, ADMIN, false);
 
         assertThat(result.importedRows()).isEqualTo(1);
         assertThat(result.batchId()).isNull();
@@ -117,7 +120,7 @@ class SaleImportTest {
     void rejectsSheetMissingRequiredColumns() throws Exception {
         byte[] file = workbook(new Object[]{"Invoice No", "Customer Name"}, new Object[]{"INV-1", "Ramesh"});
 
-        assertThatThrownBy(() -> saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN))
+        assertThatThrownBy(() -> saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN, false))
                 .isInstanceOf(InvalidExcelException.class)
                 .hasMessageContaining("Purchase Date", "Capacity (kW)", "Total Amount");
     }
@@ -125,7 +128,7 @@ class SaleImportTest {
     @Test
     void rejectsNonExcelFiles() {
         MockMultipartFile csv = new MockMultipartFile("file", "a.csv", "text/csv", "a,b".getBytes());
-        assertThatThrownBy(() -> saleService.importExcel(csv, false, ADMIN))
+        assertThatThrownBy(() -> saleService.importExcel(csv, false, ADMIN, false))
                 .isInstanceOf(InvalidExcelException.class)
                 .hasMessageContaining(".xlsx");
     }
@@ -133,7 +136,7 @@ class SaleImportTest {
     @Test
     void templateCanBeReimported() {
         // the template's example row is valid, so uploading the untouched template imports exactly one row
-        UploadResult result = saleService.importExcel(xlsx("t.xlsx", excelService.template()), true, ADMIN);
+        UploadResult result = saleService.importExcel(xlsx("t.xlsx", excelService.template()), true, ADMIN, false);
         assertThat(result.errors()).isEmpty();
         assertThat(result.importedRows()).isEqualTo(1);
     }
@@ -143,11 +146,11 @@ class SaleImportTest {
         byte[] file = workbook(
                 new Object[]{"Invoice No", "Purchase Date", "Customer Name", "Capacity (kW)", "Total Amount"},
                 new Object[]{"INV-7", "2026-01-15", "Ramesh", 5, 300000});
-        saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN);
+        saleService.importExcel(xlsx("a.xlsx", file), false, ADMIN, false);
         byte[] exported = excelService.export(saleRepository.findAll());
         saleRepository.deleteAll();
 
-        UploadResult result = saleService.importExcel(xlsx("export.xlsx", exported), false, ADMIN);
+        UploadResult result = saleService.importExcel(xlsx("export.xlsx", exported), false, ADMIN, false);
 
         assertThat(result.errors()).isEmpty();
         assertThat(saleRepository.findAll()).extracting(SolarSale::getInvoiceNumber).containsExactly("INV-7");

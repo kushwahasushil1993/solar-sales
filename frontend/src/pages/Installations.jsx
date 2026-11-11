@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import Badge from '../components/Badge.jsx';
-import { date, number, titleCase } from '../format.js';
+import AssignAgentModal from '../components/AssignAgentModal.jsx';
+import InstallationModal from '../components/InstallationModal.jsx';
+import { useToast } from '../components/Toast.jsx';
+import { date, dateTime, number, titleCase } from '../format.js';
 
-const TABS = ['', 'PENDING', 'SCHEDULED', 'INSTALLED'];
+const TABS = ['', 'PENDING', 'SCHEDULED', 'IN_PROGRESS', 'INSTALLED'];
 const PAGE_SIZE = 12;
+const INSTALL_ORDER = ['PENDING', 'SCHEDULED', 'IN_PROGRESS', 'INSTALLED'];
 
 export default function Installations() {
   const { isAdmin } = useAuth();
@@ -19,6 +23,9 @@ export default function Installations() {
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [updating, setUpdating] = useState(null);
+  const [assigning, setAssigning] = useState(null);
+  const notify = useToast();
 
   useEffect(() => {
     const t = setTimeout(() => setQuery(search.trim()), 300);
@@ -82,13 +89,41 @@ export default function Installations() {
       {error && <div className="alert alert-error">{error}</div>}
 
       <div className="install-grid">
-        {items.map((s) => <InstallCard key={s.id} sale={s} />)}
+        {items.map((s) => (
+          <InstallCard key={s.id} sale={s} onUpdate={() => setUpdating(s)}
+                       onAssign={isAdmin && s.installationStatus !== 'INSTALLED' ? () => setAssigning(s) : null} />
+        ))}
       </div>
+
+      {updating && (
+        <InstallationModal
+          sale={updating}
+          onClose={() => setUpdating(null)}
+          onSaved={(saved) => {
+            setItems((list) => list.map((x) => (x.id === saved.id ? saved : x)));
+            setUpdating(null);
+            notify(`${saved.customerName}: ${titleCase(saved.installationStatus)}`);
+          }}
+        />
+      )}
+
+      {assigning && (
+        <AssignAgentModal
+          sale={assigning}
+          onClose={() => setAssigning(null)}
+          onSaved={(task) => {
+            setItems((list) => list.map((x) => (x.id === task.id
+              ? { ...x, agentId: task.agentId, agentName: task.agentName, taskState: task.taskState }
+              : x)));
+            setAssigning(null);
+            notify(task.agentName ? `Assigned to ${task.agentName}. Waiting for acceptance.` : 'Agent removed');
+          }}
+        />
+      )}
 
       {!loading && items.length === 0 && (
         <div className="card empty-card">
           <p>No installations match{query ? ` “${query}”` : ''}.</p>
-          {!isAdmin && <p className="muted small">New sales start as Pending until an admin schedules the installation.</p>}
         </div>
       )}
       {loading && <div className="loading">Loading…</div>}
@@ -103,12 +138,13 @@ export default function Installations() {
   );
 }
 
-function InstallCard({ sale: s }) {
-  const scheduled = s.installationStatus === 'SCHEDULED' || s.installationStatus === 'INSTALLED';
+function InstallCard({ sale: s, onUpdate, onAssign }) {
+  const reached = INSTALL_ORDER.indexOf(s.installationStatus);
   const installed = s.installationStatus === 'INSTALLED';
   const steps = [
     { label: 'Purchased', done: true, when: date(s.purchaseDate) },
-    { label: 'Scheduled', done: scheduled, when: s.installationStatus === 'SCHEDULED' && s.installationDate ? `for ${date(s.installationDate)}` : scheduled ? '✓' : 'Awaiting' },
+    { label: 'Scheduled', done: reached >= 1, when: s.installationStatus === 'SCHEDULED' && s.installationDate ? `for ${date(s.installationDate)}` : reached >= 1 ? '✓' : 'Awaiting' },
+    { label: 'In progress', done: reached >= 2, when: reached >= 2 ? '✓' : '—' },
     { label: 'Installed', done: installed, when: installed ? date(s.installationDate) : '—' },
   ];
   return (
@@ -133,7 +169,25 @@ function InstallCard({ sale: s }) {
           </li>
         ))}
       </ol>
-      {s.createdByName && <div className="muted small">Added by {s.createdByName}</div>}
+      {s.agentName && (
+        <div className="small">
+          🧑‍🔧 {s.agentName}{' '}
+          <span className={`task-chip task-${(s.taskState || 'OPEN').toLowerCase()}`}>
+            {s.taskState === 'ACCEPTED' ? 'accepted' : 'waiting for acceptance'}
+          </span>
+        </div>
+      )}
+      <div className="install-foot">
+        <div className="muted small">
+          {s.installationUpdatedBy
+            ? <>Updated by {s.installationUpdatedBy} · {dateTime(s.installationUpdatedAt)}</>
+            : s.createdByName && <>Added by {s.createdByName}</>}
+        </div>
+        <div className="task-actions">
+          {onAssign && <button className="btn btn-ghost btn-sm" onClick={onAssign}>{s.agentName ? 'Reassign' : 'Assign agent'}</button>}
+          <button className="btn btn-secondary btn-sm" onClick={onUpdate}>Update status</button>
+        </div>
+      </div>
     </article>
   );
 }

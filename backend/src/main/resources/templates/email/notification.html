@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${heading}">Notification</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f5f7;padding:24px 12px;">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:10px;overflow:hidden;">
+
+      <!-- header -->
+      <tr><td style="background:#0f172a;padding:20px 28px;">
+        <span style="font-size:20px;font-weight:bold;color:#fbbf24;">&#9728;</span>
+        <span style="font-size:18px;font-weight:bold;color:#ffffff;padding-left:6px;" th:text="${company.name}">SolarSales</span>
+      </td></tr>
+
+      <!-- message -->
+      <tr><td style="padding:28px 28px 8px;">
+        <h1 style="margin:0 0 16px;font-size:22px;color:#0f172a;" th:text="${heading}">Heading</h1>
+        <p style="margin:0 0 12px;font-size:15px;" th:text="${greeting}">Dear customer,</p>
+        <p style="margin:0 0 12px;font-size:15px;line-height:1.5;" th:text="${intro}">Intro</p>
+      </td></tr>
+
+      <!-- progress -->
+      <tr><td style="padding:8px 28px 8px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:8px;">
+          <tr><td style="padding:12px 16px;font-size:13px;font-weight:bold;color:#b45309;text-transform:uppercase;letter-spacing:0.5px;">Your order progress</td></tr>
+          <!-- only completed stages are passed in -->
+          <tr th:each="step : ${steps}"><td style="padding:6px 16px;font-size:14px;">
+            <span style="display:inline-block;width:20px;height:20px;line-height:20px;border-radius:10px;background:#059669;color:#ffffff;text-align:center;font-size:12px;">&#10003;</span>
+            <span style="padding-left:8px;font-weight:bold;" th:text="${step.label}">Step</span>
+            <span style="color:#6b7280;font-size:13px;" th:if="${!#strings.isEmpty(step.when)}" th:text="${' · ' + step.when}"> · date</span>
+          </td></tr>
+          <tr><td style="height:8px;"></td></tr>
+        </table>
+      </td></tr>
+
+      <!-- invoice: only in the order confirmation (INVOICE) email -->
+      <tr th:if="${showInvoice}"><td style="padding:16px 28px 8px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="font-size:16px;font-weight:bold;color:#0f172a;">Invoice <span th:text="${invoiceNumber}">INV-1</span></td>
+            <td align="right" style="font-size:13px;color:#6b7280;">Date: <span th:text="${invoiceDate}">01 Jan 2026</span></td>
+          </tr>
+        </table>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px;">
+          <tr>
+            <td valign="top" width="50%" style="font-size:13px;line-height:1.6;padding-right:8px;">
+              <div style="font-weight:bold;color:#6b7280;text-transform:uppercase;font-size:11px;">Billed by</div>
+              <div style="font-weight:bold;" th:text="${company.name}">Company</div>
+              <div th:if="${company.address}" th:text="${company.address}">Address</div>
+              <div th:if="${company.phone}" th:text="${company.phone}">Phone</div>
+              <div th:if="${company.email}" th:text="${company.email}">Email</div>
+              <div th:if="${company.gstin}" th:text="${'GSTIN: ' + company.gstin}">GSTIN</div>
+            </td>
+            <td valign="top" width="50%" style="font-size:13px;line-height:1.6;padding-left:8px;">
+              <div style="font-weight:bold;color:#6b7280;text-transform:uppercase;font-size:11px;">Billed to</div>
+              <div th:each="line : ${billTo}" th:text="${line.value}">Customer</div>
+            </td>
+          </tr>
+        </table>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;border-collapse:collapse;font-size:14px;">
+          <tr style="background:#f9fafb;">
+            <td style="padding:10px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;text-transform:uppercase;">Description</td>
+            <td align="right" style="padding:10px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;text-transform:uppercase;">Amount</td>
+          </tr>
+          <tr>
+            <td style="padding:10px;border-bottom:1px solid #e5e7eb;" th:text="${description}">Solar PV system</td>
+            <td align="right" style="padding:10px;border-bottom:1px solid #e5e7eb;white-space:nowrap;" th:text="${total}">₹0</td>
+          </tr>
+          <tr>
+            <td align="right" style="padding:8px 10px;color:#6b7280;">Total</td>
+            <td align="right" style="padding:8px 10px;font-weight:bold;white-space:nowrap;" th:text="${total}">₹0</td>
+          </tr>
+          <tr>
+            <td align="right" style="padding:4px 10px;color:#6b7280;">Amount paid</td>
+            <td align="right" style="padding:4px 10px;white-space:nowrap;" th:text="${paid}">₹0</td>
+          </tr>
+          <tr>
+            <td align="right" style="padding:4px 10px 10px;color:#6b7280;">Balance due</td>
+            <td align="right" style="padding:4px 10px 10px;font-weight:bold;white-space:nowrap;"
+                th:style="${fullyPaid} ? 'padding:4px 10px 10px;font-weight:bold;color:#059669;' : 'padding:4px 10px 10px;font-weight:bold;color:#dc2626;'"
+                th:text="${balance}">₹0</td>
+          </tr>
+          <tr>
+            <td colspan="2" align="right" style="padding:0 10px 4px;font-size:12px;color:#6b7280;">Payment status: <span th:text="${paymentStatus}">Paid</span></td>
+          </tr>
+        </table>
+      </td></tr>
+
+      <!-- next steps -->
+      <tr><td style="padding:16px 28px 24px;">
+        <p style="margin:0;padding:12px 16px;background:#fffbeb;border-left:4px solid #f59e0b;font-size:14px;line-height:1.5;" th:text="${next}">Next steps</p>
+      </td></tr>
+
+      <!-- footer -->
+      <tr><td style="background:#f9fafb;padding:16px 28px;font-size:12px;color:#6b7280;line-height:1.6;">
+        <div th:text="${company.name}">Company</div>
+        <div>
+          <span th:if="${company.phone}" th:text="${company.phone}">phone</span>
+          <span th:if="${company.phone != null and company.email != null}"> · </span>
+          <span th:if="${company.email}" th:text="${company.email}">email</span>
+          <span th:if="${company.website}" th:text="${' · ' + company.website}"> · web</span>
+        </div>
+        <div style="margin-top:6px;">You are receiving this email because you purchased a solar system from us.</div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

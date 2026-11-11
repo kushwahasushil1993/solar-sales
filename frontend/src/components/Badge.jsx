@@ -6,6 +6,15 @@ const TONES = {
   PENDING: 'red',
   INSTALLED: 'green',
   SCHEDULED: 'blue',
+  IN_PROGRESS: 'purple',
+  // installation task
+  ASSIGNED: 'amber',
+  ACCEPTED: 'green',
+  OPEN: 'grey',
+  // customer email status
+  SENT: 'green',
+  FAILED: 'red',
+  SKIPPED: 'grey',
 };
 
 /** Status pill; installation PENDING is shown grey rather than red since it's not an error. */

@@ -10,7 +10,7 @@ import Badge from '../components/Badge.jsx';
 import { date, money, moneyCompact, monthLabel, number, titleCase } from '../format.js';
 
 const PANEL_COLORS = ['#f59e0b', '#0ea5e9', '#10b981', '#8b5cf6', '#ef4444', '#64748b'];
-const INSTALL_COLORS = { INSTALLED: '#10b981', SCHEDULED: '#0ea5e9', PENDING: '#94a3b8' };
+const INSTALL_COLORS = { INSTALLED: '#10b981', IN_PROGRESS: '#8b5cf6', SCHEDULED: '#0ea5e9', PENDING: '#94a3b8' };
 
 export default function Dashboard() {
   const { isAdmin } = useAuth();
@@ -128,7 +128,7 @@ export default function Dashboard() {
             <h3>Installation status</h3>
           </div>
           <div className="progress-list">
-            {['INSTALLED', 'SCHEDULED', 'PENDING'].map((status) => {
+            {['INSTALLED', 'IN_PROGRESS', 'SCHEDULED', 'PENDING'].map((status) => {
               const b = data.byInstallationStatus.find((x) => x.label === status) || { count: 0 };
               const pct = Math.round((b.count / installTotal) * 100);
               return (

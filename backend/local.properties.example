@@ -1,9 +1,15 @@
-# Copy to backend/local.properties (git-ignored) for your own local settings.
-# Environment variables (JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, ...) work too.
+# Copy to backend/local.properties (git-ignored) for your own local settings, then
+# uncomment and fill in the lines you need. Leave unused keys commented: an empty
+# value here would override the matching environment variable.
+# Environment variables (GOOGLE_CLIENT_ID, TWILIO_ACCOUNT_SID, MAIL_HOST, ...) work too.
 
-# Generate with: openssl rand -base64 48
-app.jwt.secret=
+# Google: https://console.cloud.google.com/apis/credentials -> OAuth client ID (Web application)
+#   Authorized redirect URI: http://localhost:5173/login/oauth2/code/google
+#app.oauth.google.client-id=
+#app.oauth.google.client-secret=
 
-# Admin created on first start if this email doesn't exist yet
-app.admin.email=admin@solarsales.local
-app.admin.password=
+# GitHub: https://github.com/settings/developers -> New OAuth App
+#   Authorization callback URL: http://localhost:5173/login/oauth2/code/github
+#app.oauth.github.client-id=
+#app.oauth.github.client-secret=
+

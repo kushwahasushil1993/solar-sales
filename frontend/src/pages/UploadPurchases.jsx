@@ -16,6 +16,7 @@ export default function UploadPurchases() {
   const [imported, setImported] = useState(null); // final result
   const [error, setError] = useState('');
   const [history, setHistory] = useState([]);
+  const [emailInvoices, setEmailInvoices] = useState(false);
 
   const loadHistory = () => api.uploads().then(setHistory).catch(() => {});
   useEffect(() => { loadHistory(); }, []);
@@ -51,7 +52,7 @@ export default function UploadPurchases() {
   async function runImport() {
     setBusy(true);
     try {
-      const result = await api.uploadExcel(file, false);
+      const result = await api.uploadExcel(file, false, emailInvoices);
       setImported(result);
       setPreview(null);
       notify(`Imported ${result.importedRows} of ${result.totalRows} rows`);
@@ -158,6 +159,10 @@ export default function UploadPurchases() {
           <div className="result-actions">
             {preview && (
               <>
+                <label className="checkbox result-check">
+                  <input type="checkbox" checked={emailInvoices} onChange={(e) => setEmailInvoices(e.target.checked)} />
+                  Email each customer their invoice (rows with an email address)
+                </label>
                 <button className="btn btn-ghost" onClick={reset}>Cancel</button>
                 <button className="btn btn-primary" disabled={preview.importedRows === 0} onClick={runImport}>
                   Import {preview.importedRows} valid row{preview.importedRows === 1 ? '' : 's'}
